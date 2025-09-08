@@ -3,6 +3,8 @@ setwd("c:\\Users\\alexe\\OneDrive\\PROG\\GRBI\\GRBI") #Set working directory
 # Chargement des librairies####
 
 install.packages("lubridate")
+install.packages("car")
+install.packages("hms")
 
 library(lubridate)
 library(dplyr)
@@ -14,26 +16,37 @@ library(ggplot2)
 #Fichier Excel (.xlsx) Activite_depressage a été transformé en fichier texte (.txt)
 #Bien s'assurer de séparer le fichier «Occurence» et «Activité»
 
-occu <- read.table(file = "Data_GRBI_depressage_OCCU.txt", header = TRUE, fill = TRUE)
-occu
-
-act <- read.table(file = "Data_GRBI_depressage_ACT.txt", header = TRUE, fill =TRUE)
-act
-
+act <- read.table(file = "Data_GRBI_depressage_ACT.txt", header = TRUE, fill =TRUE) %>% #Jeu de données mère
+   dplyr::select(-Latitude, -Longitude, -Visite, -end_time, -type, -filtre_20dB, -end_time_cor2018) %>% 
+  rename(voc_start = "start_time_cor2018")  #Renommé start_time_cor2018
+  
 str(act)
-str(occu)
+
+
+#Jeu de données météo
+
+meteo <- read.table(file = "Data_GRBI_depressage_METEO.txt", header = TRUE, fill = TRUE) %>% #Permet d'aller chercher les heures de lever et coucher de soleil
+  dplyr::select(-Heure, -Temperature, -Vit_vent, -Hauteur_prec)
+  
 
 #TRI ET SÉLECTION####
-# On veut tout d'abord séparer les deux classes en AM et PM
+
+#Exclusion des parcelles traitées
+act <- act %>% 
+  filter(Annee == "2018"|Annee == "2019"|Traitement == "Temoin")
+
+# Séparer les deux classes en AM et PM
 
 act_AM <- dplyr::filter(act, Periode == "AM")
-act_AM        
 
-act_PM <- dplyr::filter(act, Periode == "PM")#Activité PM
-act_PM
+sun_AM <- meteo %>% #Date + Lever de soleil
+  select(-Coucher_soleil)
 
-#Sélection des blocs
 
+act_PM <- dplyr::filter(act, Periode == "PM")
+
+sun_PM <- meteo %>% #Date + Coucher de soleil
+  select(-Lever_soleil)
 
 # SNR 
 
@@ -47,51 +60,22 @@ act_PM
 #ANALYSE 1 - Fenêtre d'activité vocale####
 #Nécessaire d'obtenir les VP pour l'activité vocale (Fichier ACT)
 
-#Analyse préliminaire pour voir le patron journalier
+#Analyse préliminaire pour voir le patron journalier - (c) Olivier Renaud
 
-H_duree_AM <- act_AM %>% 
-  group_by(Heure_debut, duree_sec) %>% #Groupe l'heure de début (hh:mm) avec la durée de l'enregistrement (en s) 
-  summarise(Heure_debut,duree_sec, start_time_cor2018)
-H_duree_AM
+hms_debut <- lubridate::hms(act_AM$Heure_debut) #Transformation de l'heure du début en période HMS
+debut_sec <- period_to_seconds(hms_debut)
 
-H_duree_PM <- act_PM %>% #Même chose pour la période PM
-  group_by(Heure_debut, duree_sec) %>% 
-  summarise(Heure_debut, duree_sec, start_time_cor2018)
-H_duree_PM
+sun_hm <- lubridate::hm(sun_AM$Lever_soleil)
+sun_AM_sec <- period_to_seconds(sun_hm)
 
-# Transformer temps(hh:mm) en secondes, additionner la colonne «start_time_cor2018)  
+sun_AM <- sun_AM %>% #Rajoute une colonne de l'heure du lever de soleil en secondes
+  cbind(sun_AM_sec)
 
-hms_AM <- lubridate::hms(H_duree_AM$Heure_debut) # Transformation de l'heure de début en HMS (Heure, minutes, secondes)
-hms_PM <- lubridate::hms(H_duree_PM$Heure_debut)
 
-sec_AM <- period_to_seconds(hms_AM) # Transformation du HMS en secondes
-sec_PM <- period_to_seconds(hms_PM)
-  
-# Jointure à la table H_duree_AM
-
-H_duree_AM <- cbind(H_duree_AM, Heure_deb_sec = sec_AM)
-H_duree_PM <- cbind(H_duree_PM, Heure_deb_sec = sec_PM)
-
-#Addition des deux colonnes sec_AM et start_time_cor2018 pour avoir le temps (en secondes)
-
-debut_start_AM <- H_duree_AM[c(3,4)]  #Sélection des colonnes qui sont intéressantes pour faire rowSums
-debut_start_PM <- H_duree_PM[c(3,4)]
-
-as.numeric(debut_start_AM$start_time_cor2018, debut_start_PM$start_time_cor2018)
-as.numeric(debut_start_AM$Heure_deb_sec, debut_start_PM$Heure_deb_sec)
-
-class(c(debut_start_AM$Heure_deb_sec, debut_start_PM$Heure_deb_sec))
-class(c(debut_start_AM$start_time_cor2018, debut_start_PM$start_time_cor2018))
-
-sec_voc_AM <- rowSums(debut_start_AM) #Temps(secondes) des vocalises (Heure début + voc)
-sec_voc_PM <- rowSums(debut_start_PM)
-
-debut_start_AM <- cbind(debut_start_AM, sec_voc_AM) #Ajout de la colonne du temps des vocalises
-debut_start_PM <- cbind(debut_start_PM, sec_voc_PM)
-
-#On veut créer des "classes" de temps en fct. de l'heure du lever/coucher de soleil (qui correspondra au temps 0)
-#Établir le temps du lever/coucher de soleil en secondes -> Rapporter sur 0
-#Séquence vectorielle de -x à +x en fct. du soleil
+act_AM <- act_AM %>% 
+  cbind(debut_sec) %>% #Ajout du début de l'enregistrement, en secondes
+  mutate(Heure_voc = debut_sec + voc_start) %>%  #Heure_voc correspond à l'heure d'une vocalise, en secondes
+  left_join(sun_AM, by = "Date") #Jointure attributaire de l'heure du lever de soleil en fonction de la date
 
 
 
@@ -99,4 +83,5 @@ debut_start_PM <- cbind(debut_start_PM, sec_voc_PM)
 
 
 
-#ANALYSE 2 - Métriques de performance####
+
+
