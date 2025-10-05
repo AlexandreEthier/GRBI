@@ -70,7 +70,7 @@ sun_AM <- sun_AM %>% #Rajoute une colonne de l'heure du lever de soleil en secon
 act_AM <- act_AM %>% 
   cbind(s_debut_AM) %>% #Ajout du début de l'enregistrement, en secondes
   mutate(Heure_voc = s_debut_AM + voc_start) %>%  #Heure_voc correspond à l'heure d'une vocalise, en secondes
-  left_join(sun_AM, by = "Date") #Jointure attributaire de l'heure du lever de soleil en fonction de la date
+  left_join(sun_AM, by = "Date", relationship = "many-to-many") #Jointure attributaire de l'heure du lever de soleil en fonction de la date
 
 voc_sun_AM <- round((act_AM$Heure_voc - act_AM$s_sun_AM)/60, digits = 0) # Heure de la vocalise (en secondes) - Lever de soleil (en secondes), ramené en minutes
 voc_sun_AM
@@ -86,41 +86,48 @@ n_voc_AM <- as.data.frame(tab_voc_AM) %>%  #Me permet de trouver la fréquence d
 n_voc_AM
 
 plot(Freq ~ sun_relatif, data = n_voc_AM) #Graphique préliminaire pour observer les tendances
-                                #Pic de vocalises [-50;-40].
+                                          #Pic de vocalises [-50;-40].
 
 #Il faut maintenant regrouper les observations par 5 min.
 
 str(n_voc_AM) #On doit transformer Var1 en numeric
-n_voc_AM$relatif_par5 <- as.numeric(levels(n_voc_AM$sun_relatif))[n_voc_AM$sun_relatif]
+n_voc_AM$sun_relatif <- as.numeric(levels(n_voc_AM$sun_relatif))[n_voc_AM$sun_relatif]
 
 n_voc_AM #Intervalle de n_voc: [-72; 39] -> Nous allons déterminer l'intervalle comme suit: [-75; +40]
 
 breaks_AM <- seq(from = -75, to = 40, by = 5)
 
-n_voc_AM_par5 <- cut(n_voc_AM$relatif_par5, breaks = breaks_AM, right = FALSE) #Création des intervalles
+n_voc_AM_par5 <- cut(n_voc_AM$sun_relatif, breaks = breaks_AM, right = FALSE) #Création des intervalles
 n_voc_AM_par5
 
 n_voc_AM <- n_voc_AM %>% #Ajout des intervalles sur le dataframe n_voc
   cbind(n_voc_AM_par5)
-n_voc_AM
 
 n_voc_AM$freq_cum_par5 <- ave(n_voc_AM$Freq, n_voc_AM$n_voc_AM_par5, FUN = sum) # Calcul de la somme des vocalises dans mon intervalle de 5 minutes
                                                                                 #La fonction "ave" me permet de réaliser une fonction sur des valeurs en fonction d'une catégorie d'un même dataframe
 
-freq_par5_AM <- as.data.frame(distinct(n_voc_AM, n_voc_AM_par5, freq_cum_par5)) #Sélection des valeurs uniques. La somme de la fréquence des intervalles a été généré à plusieurs reprises; il s'agit de choisir les valeurs uniques
+par5_corr_AM <- seq(from = -75, to = 35, by = 5) #Correspond à la limite inférieure des intervalles de 5 minutes
 
-freq_cum_par5 <- freq_par5_AM$freq_cum_par5
+freq_par5_AM <- as.data.frame(distinct(n_voc_AM, n_voc_AM_par5, freq_cum_par5)) %>% #Sélection des valeurs uniques. La somme de la fréquence des intervalles a été généré à plusieurs reprises; il s'agit de choisir les valeurs uniques
+                cbind(par5_corr_AM)
 
-class(abs)
-as.factor(abs)
+freq_par5_AM
 
+#Graphique fréquence vocalisations AM
 
-plot(freq_par5_AM$n_voc_AM_par5, freq_par5_AM$freq_cum_par5,  #Graphique préliminaire de la fréquence de vocalises par intervalle de 5 minutes précédant et suivant le lever de soleil
-     type = "b",
-     main = "Fréquence cumulée de vocalises de GRBI par rapport au lever de soleil", 
-     xlab = "Temps par rapport au lever de soleil (par 5 minutes)", 
-     ylab = "Fréquence cumulée",
-     par(cex.axis = 0.8, cex.lab = 1)) 
+graph_freqAM <- ggplot(data = freq_par5_AM, aes(x = par5_corr_AM, y = freq_cum_par5))+
+  geom_point(size = 2)+
+  geom_line(linetype = 1)+
+  scale_x_continuous(breaks = par5_corr_AM)+
+  scale_y_continuous(breaks = seq(from = 0, to = 900, by = 100))+
+  geom_vline(xintercept = 0, colour = "orange", linewidth = 1.3 )+
+  xlab("Temps relatif au lever de soleil (5 min.)")+
+  ylab("Fréquence cumulée de vocalisations")+
+  ggtitle("Fréquence cumulée de vocalisations de la Grive de Bicknell en fonction du lever de soleil")+
+  theme(panel.grid.major.x  = element_blank(),
+        panel.grid.minor.x = element_blank())+
+  theme_light()
+graph_freqAM
 
 
 # SOIR
@@ -168,21 +175,32 @@ n_voc_PM <- n_voc_PM %>%
 
 n_voc_PM$freq_cum_par5 <- ave(n_voc_PM$Freq, n_voc_PM$n_voc_PM_par5, FUN = sum)
 
-freq_par5_PM <- as.data.frame(distinct(n_voc_PM, n_voc_PM_par5, freq_cum_par5))
+par5_corr_PM <- seq(from = -35, to = 40 , by = 5)
 
-plot(freq_cum_par5 ~ n_voc_PM_par5, data = freq_par5_PM, 
-     main = "Fréquence cumulée de vocalises de GRBI par rapport au coucher de soleil", 
-     xlab = "Temps par rapport au coucher de soleil (par 5 minutes)", 
-     ylab = "Fréquence cumulée",
-     par(cex.axis = 0.8, cex.lab = 1))
+freq_par5_PM <- as.data.frame(distinct(n_voc_PM, n_voc_PM_par5, freq_cum_par5)) %>% 
+                cbind(par5_corr_PM)
 
+#Graphique vocalisations PM
+
+graph_freqPM <- ggplot(data = freq_par5_PM, aes(x = par5_corr_PM, y = freq_cum_par5))+
+  geom_point(size = 2)+
+  geom_line(linetype = 1)+
+  scale_x_continuous(breaks = par5_corr_PM)+
+  scale_y_continuous(breaks = seq(from = 0, to = 900, by = 100))+
+  geom_vline(xintercept = 0, colour = "orange", linewidth = 1.3 )+
+  xlab("Temps relatif au coucher de soleil (5 min.)")+
+  ylab("Fréquence cumulée de vocalisations")+
+  ggtitle("Fréquence cumulée de vocalisations de la Grive de Bicknell en fonction du coucher de soleil")+
+ theme_light()+
+   theme(panel.grid.major.x  = element_blank(),
+      panel.grid.minor.x = element_blank())
+graph_freqPM
 
 
 # PROCHAINE SÉANCE:
 
-#1 Mise en page des graphiques (pour le 1er octobre)
-#2 Calcul SNR
-#3 Fenêtre d'activité vocale
+#1 Régression logistique
+
 
 
 
